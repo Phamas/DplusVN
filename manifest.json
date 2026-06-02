@@ -4,9 +4,11 @@
   "version": "2.0",
   "description": "Translates Disney+ subtitles to Vietnamese in real-time.",
   "permissions": ["activeTab", "scripting", "storage"],
+  "options_page": "options.html",
   "host_permissions": [
     "*://*.disneyplus.com/*",
-    "*://script.google.com/*"
+    "*://script.google.com/*",
+    "*://translate.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background.js"

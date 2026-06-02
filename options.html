@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Disney+ Vietnamese Subtitles — Settings</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-width: 420px;
+      padding: 24px;
+    }
+
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #58a6ff;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .dedication {
+      font-size: 13px;
+      color: #8b949e;
+      font-style: italic;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    /* Wife photo */
+    .photo-wrap {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    #wife-photo {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid #e05a7a;
+      display: block;
+    }
+
+    .section {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #8b949e;
+      margin-bottom: 14px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+    .row:last-child { margin-bottom: 0; }
+
+    label {
+      font-size: 14px;
+      color: #c9d1d9;
+      flex-shrink: 0;
+      min-width: 140px;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: #58a6ff;
+      cursor: pointer;
+    }
+
+    input[type="color"] {
+      width: 48px;
+      height: 32px;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      background: none;
+      cursor: pointer;
+      padding: 2px;
+    }
+
+    select {
+      flex: 1;
+      background: #0d1117;
+      color: #e6edf3;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .value-badge {
+      font-size: 13px;
+      color: #58a6ff;
+      min-width: 48px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    /* Preview box */
+    #preview-wrap {
+      background: #000;
+      border-radius: 8px;
+      height: 120px;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 16px;
+      border: 1px solid #30363d;
+    }
+    #preview-wrap .bg-hint {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #30363d;
+      font-size: 13px;
+      pointer-events: none;
+    }
+    #preview-text {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      text-align: center;
+      pointer-events: none;
+      transition: all 0.15s;
+      white-space: pre-line;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .toggle-row:last-child { margin-bottom: 0; }
+
+    .toggle {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: #30363d;
+      border-radius: 22px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 3px; bottom: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle input:checked + .toggle-slider { background: #238636; }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    button {
+      flex: 1;
+      padding: 9px 0;
+      border-radius: 6px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+
+    #btn-save { background: #238636; color: #fff; }
+    #btn-reset { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+
+    #status {
+      text-align: center;
+      font-size: 13px;
+      color: #3fb950;
+      height: 20px;
+      margin-top: 10px;
+      transition: opacity 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎬 Disney+ Vietnamese Subtitles</h1>
+
+  <p class="dedication">
+    Vợ ơi, anh viết này vì muốn mỗi phim xem cùng nhau để có em hiểu. ❤️
+  </p>
+
+  <!-- Wife photo -->
+  <div class="photo-wrap">
+    <img id="wife-photo" src="wife.jpg" alt="❤️">
+  </div>
+
+  <!-- Live preview -->
+  <div id="preview-wrap">
+    <div class="bg-hint">Preview</div>
+    <div id="preview-text">Đây là phụ đề tiếng Việt mẫu</div>
+  </div>
+
+  <!-- Text -->
+  <div class="section">
+    <div class="section-title">Text</div>
+
+    <div class="row">
+      <label>Color</label>
+      <input type="color" id="color" value="#00FFFF">
+    </div>
+
+    <div class="row">
+      <label>Font size</label>
+      <input type="range" id="fontSize" min="14" max="52" step="1" value="26">
+      <span class="value-badge" id="fontSize-val">26px</span>
+    </div>
+
+    <div class="row">
+      <label>Font family</label>
+      <select id="fontFamily">
+        <option value='"Segoe UI",Arial,sans-serif'>Segoe UI</option>
+        <option value="Arial,sans-serif">Arial</option>
+        <option value='"Helvetica Neue",Helvetica,sans-serif'>Helvetica</option>
+        <option value="Georgia,serif">Georgia</option>
+        <option value='"Times New Roman",serif'>Times New Roman</option>
+        <option value='"Courier New",monospace'>Courier New</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label>Font weight</label>
+      <select id="fontWeight">
+        <option value="400">Normal</option>
+        <option value="600">Semi-bold</option>
+        <option value="700" selected>Bold</option>
+        <option value="900">Black</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Background -->
+  <div class="section">
+    <div class="section-title">Background & Shadow</div>
+
+    <div class="row">
+      <label>Background color</label>
+      <input type="color" id="bgColor" value="#000000">
+    </div>
+
+    <div class="row">
+      <label>Background opacity</label>
+      <input type="range" id="bgOpacity" min="0" max="100" step="5" value="0">
+      <span class="value-badge" id="bgOpacity-val">0%</span>
+    </div>
+
+    <div class="row">
+      <label>Background padding</label>
+      <input type="range" id="bgPadding" min="0" max="20" step="1" value="0">
+      <span class="value-badge" id="bgPadding-val">0px</span>
+    </div>
+
+    <div class="toggle-row">
+      <label>Text shadow</label>
+      <label class="toggle">
+        <input type="checkbox" id="shadow" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Position -->
+  <div class="section">
+    <div class="section-title">Position</div>
+
+    <div class="row">
+      <label>Vertical position</label>
+      <input type="range" id="bottom" min="2" max="50" step="1" value="12">
+      <span class="value-badge" id="bottom-val">12%</span>
+    </div>
+
+    <div class="row">
+      <label>Width</label>
+      <input type="range" id="width" min="40" max="100" step="1" value="88">
+      <span class="value-badge" id="width-val">88%</span>
+    </div>
+  </div>
+
+  <!-- Behavior -->
+  <div class="section">
+    <div class="section-title">Behavior</div>
+    <div class="toggle-row">
+      <label>Show English while translating</label>
+      <label class="toggle">
+        <input type="checkbox" id="showOriginal" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="btn-reset">Reset defaults</button>
+    <button id="btn-save">Save settings</button>
+  </div>
+  <div id="status"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>

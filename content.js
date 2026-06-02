@@ -1,276 +1,254 @@
-// content.js — runs in ISOLATED world
+// content.js — ISOLATED world
 
-const MAX_CUES = 3000;
+// ── Translation cache: stripped cue text → Vietnamese ─────────────────────────
+const cache = new Map();
+const pending = new Set();
+const MAX_CACHE = 3000;
 
-// ─── State ────────────────────────────────────────────────────────────────────
-let overlay = null;
-let currentCues = [];
-let seenUrlKeys = new Set();
-let videoEl = null;
-let lastCueText = null;
-let lastVideoId = '';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function getVideoId() {
-  const match = location.pathname.match(/\/(?:video\/watch|watch)\/([^/?#]+)/);
-  return match ? match[1] : location.pathname;
+function cacheSet(key, value) {
+  if (cache.size >= MAX_CACHE) cache.delete(cache.keys().next().value);
+  cache.set(key, value);
 }
 
-// ─── Reset on new VIDEO CONTENT only (not on seek) ───────────────────────────
-function resetForNewVideo() {
-  console.log('[D+VT] New video detected, resetting cues + seenUrls (keeping videoEl).');
-  currentCues = [];
-  seenUrlKeys = new Set();
-  // Do NOT null out videoEl — we still need it for rendering
-  lastCueText = null;
-  if (overlay) overlay.textContent = '';
-  window.dispatchEvent(new CustomEvent('D_PLUS_RESET'));
+// ── Settings ──────────────────────────────────────────────────────────────────
+const DEFAULTS = {
+  color: '#00FFFF', fontSize: 26, fontFamily: '"Segoe UI",Arial,sans-serif',
+  fontWeight: '700', bgColor: '#000000', bgOpacity: 0, bgPadding: 0,
+  shadow: true, bottom: 12, width: 88, showOriginal: true,
+};
+let settings = { ...DEFAULTS };
+
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `${r},${g},${b}`;
 }
 
-function watchForNavigation() {
-  lastVideoId = getVideoId();
-  setInterval(() => {
-    const videoId = getVideoId();
-    if (videoId !== lastVideoId) {
-      console.log(`[D+VT] Video ID changed: ${lastVideoId} → ${videoId}`);
-      lastVideoId = videoId;
-      resetForNewVideo();
-    }
-  }, 1500);
-}
-
-// ─── Overlay ──────────────────────────────────────────────────────────────────
-function createOverlay() {
-  if (overlay) return;
-  overlay = document.createElement('div');
-  overlay.id = 'dvt-overlay';
+function applySettings(s) {
+  settings = { ...DEFAULTS, ...s };
+  if (!overlay) return;
+  const bg = settings.bgOpacity > 0
+    ? `rgba(${hexToRgb(settings.bgColor)},${settings.bgOpacity/100})`
+    : 'transparent';
+  const shadow = settings.shadow
+    ? '-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000'
+    : 'none';
   overlay.style.cssText = `
-    position: fixed !important;
-    bottom: 18% !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    width: 85% !important;
-    max-width: 960px !important;
-    text-align: center !important;
-    color: #00FFFF !important;
-    font-size: 26px !important;
-    line-height: 1.4 !important;
-    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif !important;
-    font-weight: 700 !important;
-    text-shadow:
-      -1px -1px 0 #000,
-       1px -1px 0 #000,
-      -1px  1px 0 #000,
-       1px  1px 0 #000,
-       0    2px 8px rgba(0,0,0,1) !important;
-    pointer-events: none !important;
-    z-index: 2147483647 !important;
-    background: transparent !important;
-    word-break: break-word !important;
+    position:fixed !important;
+    bottom:${settings.bottom}% !important;
+    left:50% !important;
+    transform:translateX(-50%) !important;
+    width:${settings.width}% !important;
+    max-width:1200px !important;
+    text-align:center !important;
+    color:${settings.color} !important;
+    font-size:${settings.fontSize}px !important;
+    font-weight:${settings.fontWeight} !important;
+    font-family:${settings.fontFamily} !important;
+    line-height:1.45 !important;
+    text-shadow:${shadow} !important;
+    background:${bg} !important;
+    padding:${settings.bgPadding}px ${settings.bgPadding+4}px !important;
+    border-radius:${settings.bgPadding > 0 ? '4px' : '0'} !important;
+    pointer-events:none !important;
+    z-index:2147483647 !important;
+    word-break:break-word !important;
   `;
+}
 
+function loadSettings() {
+  chrome.storage.sync.get('subtitleSettings', ({ subtitleSettings }) => {
+    applySettings(subtitleSettings || {});
+  });
+}
+
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.subtitleSettings) applySettings(changes.subtitleSettings.newValue || {});
+});
+
+// ── Overlay ───────────────────────────────────────────────────────────────────
+let overlay = null;
+
+function createOverlay() {
+  overlay = document.createElement('div');
+  overlay.id = 'dpvt-overlay';
   function attach() {
     if (document.body) {
       document.body.appendChild(overlay);
-      console.log('[D+VT] Overlay attached.');
-      overlay.textContent = '✅ D+VT active';
-      setTimeout(() => { if (overlay) overlay.textContent = ''; }, 2000);
-    } else {
-      requestAnimationFrame(attach);
-    }
+      loadSettings();
+      console.log('[DPVT] Overlay attached.');
+      overlay.textContent = '❤️ D+VT for my wife';
+      setTimeout(() => { if (overlay.textContent === '❤️ D+VT for my wife') overlay.textContent = ''; }, 2000);
+    } else requestAnimationFrame(attach);
   }
   attach();
 }
 
-// ─── VTT Parser ───────────────────────────────────────────────────────────────
-function tsToSeconds(ts) {
-  const [hms, ms] = ts.replace(',', '.').split('.');
-  const parts = hms.split(':');
-  return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 +
-    parseFloat(parts[2]) + parseFloat('0.' + (ms || '0'));
+// ── Text helpers ──────────────────────────────────────────────────────────────
+function stripTags(s) {
+  return (s || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function parseMpegTsOffset(vttText) {
-  const header = vttText.slice(0, 500);
-  const match = header.match(
-    /X-TIMESTAMP-MAP=MPEGTS:(\d+),LOCAL:(\d{2}:\d{2}:\d{2}[.,]\d+)/i
-  );
-  if (!match) return 0;
-  const mpegts = parseInt(match[1], 10);
-  const local  = tsToSeconds(match[2]);
-  const offset = (mpegts / 90000) - local;
-  if (Math.abs(offset) > 86400) return 0;
-  console.log(`[D+VT] MPEGTS offset: ${offset.toFixed(3)}s`);
-  return offset;
-}
-
-function stripVttTags(text) {
-  return text.replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').trim();
-}
-
-function parseVtt(vttText) {
-  if (!vttText || typeof vttText !== 'string') return [];
-  const offset = parseMpegTsOffset(vttText);
-  const cues = [];
-  const lines = vttText.split(/\r?\n/);
-  let currentCue = null;
-
-  for (const line of lines) {
-    const timeMatch = line.match(
-      /(\d{2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3})/
-    );
-    if (timeMatch) {
-      const start = Math.max(0, tsToSeconds(timeMatch[1]) - offset);
-      const end   = Math.max(0, tsToSeconds(timeMatch[2]) - offset);
-      currentCue = { start, end, text: '' };
-      cues.push(currentCue);
-      continue;
-    }
-    if (currentCue) {
-      const stripped = stripVttTags(line.trim());
-      if (stripped && !stripped.startsWith('NOTE') && stripped !== 'WEBVTT') {
-        currentCue.text += (currentCue.text ? ' ' : '') + stripped;
-      }
-    }
-  }
-  return cues.filter(c => c.text.length > 0);
-}
-
-// ─── Cue Merge ────────────────────────────────────────────────────────────────
-function mergeCues(newCues) {
-  const existingStarts = new Set(currentCues.map(c => c.start.toFixed(2)));
-  const fresh = newCues.filter(c => !existingStarts.has(c.start.toFixed(2)));
-  currentCues = [...currentCues, ...fresh].sort((a, b) => a.start - b.start);
-  if (currentCues.length > MAX_CUES) {
-    currentCues = currentCues.slice(currentCues.length - MAX_CUES);
-  }
-}
-
-// ─── Translation ──────────────────────────────────────────────────────────────
-function translateCues(cues) {
-  const texts = cues.map(c => c.text);
-  console.log(`[D+VT] Sending ${texts.length} cues for translation...`);
-
-  chrome.runtime.sendMessage({ type: 'TRANSLATE_BATCH', texts }, (response) => {
-    if (chrome.runtime.lastError) {
-      console.error('[D+VT] Message error:', chrome.runtime.lastError.message);
-      mergeCues(cues);
-      return;
-    }
-
-    if (response && response.success && Array.isArray(response.translated)) {
-      console.log(`[D+VT] ✅ Got ${response.translated.length} translations for ${cues.length} cues`);
-      cues.forEach((cue, i) => {
-        const t = (response.translated[i] || '').trim();
-        if (t) cue.text = t;
-      });
-    } else {
-      console.warn('[D+VT] Translation response unexpected:', JSON.stringify(response));
-    }
-
-    mergeCues(cues);
-    if (currentCues.length > 0) {
-      console.log(`[D+VT] Total cues: ${currentCues.length}. Range: ${currentCues[0].start.toFixed(1)}s – ${currentCues[currentCues.length-1].end.toFixed(1)}s`);
-    }
+// ── Translation ───────────────────────────────────────────────────────────────
+function translateAndCache(texts, onDone) {
+  const needed = texts.filter(t => t && !cache.has(t) && !pending.has(t));
+  if (!needed.length) { onDone?.(); return; }
+  needed.forEach(t => pending.add(t));
+  chrome.runtime.sendMessage({ type: 'TRANSLATE', texts: needed }, resp => {
+    needed.forEach(t => pending.delete(t));
+    if (resp?.ok) needed.forEach((t, i) => { if (resp.translated[i]) cacheSet(t, resp.translated[i]); });
+    onDone?.();
   });
 }
 
-// ─── Subtitle Event Listener ──────────────────────────────────────────────────
-window.addEventListener('D_PLUS_SUBTITLE', (event) => {
-  const { url, text } = event.detail;
-  const urlKey = url.split('?')[0];
-  if (seenUrlKeys.has(urlKey)) return;
-  seenUrlKeys.add(urlKey);
+function translateFast(text, onDone) {
+  if (pending.has(text)) return;
+  pending.add(text);
+  chrome.runtime.sendMessage({ type: 'TRANSLATE_FAST', text }, resp => {
+    pending.delete(text);
+    if (resp?.ok && resp.translated) onDone(resp.translated);
+  });
+}
 
-  const cues = parseVtt(text);
-  if (cues.length === 0) {
-    console.warn('[D+VT] Parsed 0 cues from:', urlKey);
-    return;
+// ── Shadow root (cached) ──────────────────────────────────────────────────────
+let subtitleRoot = null;
+
+function getSubtitleRoot() {
+  if (subtitleRoot) return subtitleRoot;
+  const host = document.querySelector('timed-text-override-region');
+  if (host?.shadowRoot) subtitleRoot = host.shadowRoot;
+  return subtitleRoot;
+}
+
+// ── Text fragment reader ──────────────────────────────────────────────────────
+function getPlayerTextFragments() {
+  const root = getSubtitleRoot();
+  if (!root) return [];
+  const frags = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    const t = node.textContent.trim();
+    if (t.length > 2 && t.length < 500) frags.push(t);
+  }
+  return frags;
+}
+
+// ── Subtitle detection & display ──────────────────────────────────────────────
+let lastShownKey = '';
+
+function showOverlay(text) {
+  if (overlay) overlay.textContent = text || '';
+}
+
+function checkSubtitle() {
+  const frags = getPlayerTextFragments();
+  if (!frags.length) { showOverlay(''); lastShownKey = ''; return; }
+
+  // Try each fragment and the fully-joined version as cache keys.
+  // VTT parser joins multi-line cues with a space; shadow DOM may split them.
+  const stripped = frags.map(f => stripTags(f));
+  const joined   = stripped.join(' ');
+  const keys     = stripped.length > 1 ? [...stripped, joined] : stripped;
+
+  for (const key of keys) {
+    if (key === lastShownKey) return;
+    if (cache.has(key)) {
+      lastShownKey = key;
+      showOverlay(cache.get(key));
+      return;
+    }
   }
 
-  console.log(`[D+VT] Parsed ${cues.length} cues from chunk. Range: ${cues[0].start.toFixed(1)}s – ${cues[cues.length-1].end.toFixed(1)}s`);
-  translateCues(cues);
+  // Cache miss — on-demand translation
+  const key = joined;
+  if (key === lastShownKey) return;
+  lastShownKey = key;
+
+  if (settings.showOriginal) showOverlay(frags.join(' '));
+  translateFast(key, translated => {
+    cacheSet(key, translated);
+    if (lastShownKey === key) showOverlay(translated);
+  });
+}
+
+// ── Player observer (RAF-debounced) ──────────────────────────────────────────
+let playerObserver = null;
+let rafPending = false;
+
+function scheduleCheck() {
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(() => { rafPending = false; checkSubtitle(); });
+}
+
+function attachPlayerObserver() {
+  if (playerObserver) return true;
+  const root = getSubtitleRoot();
+  if (!root) return false;
+  playerObserver = new MutationObserver(scheduleCheck);
+  playerObserver.observe(root, { childList: true, subtree: true, characterData: true });
+  console.log('[DPVT] Observer attached to timed-text-override-region.');
+  return true;
+}
+
+// Poll until attached, then stop
+const attachInterval = setInterval(() => {
+  if (attachPlayerObserver()) clearInterval(attachInterval);
+}, 1000);
+
+// ── VTT pre-translation ───────────────────────────────────────────────────────
+function extractCueTexts(vtt) {
+  const texts = new Set();
+  const lines = vtt.split(/\r?\n/);
+  let inCue = false, buf = '';
+  for (const line of lines) {
+    if (line.includes('-->')) { inCue = true; buf = ''; }
+    else if (inCue && line.trim() === '') {
+      const t = stripTags(buf.trim());
+      if (t) texts.add(t);
+      inCue = false; buf = '';
+    } else if (inCue) {
+      buf += (buf ? ' ' : '') + line;
+    }
+  }
+  if (inCue && buf.trim()) texts.add(stripTags(buf.trim()));
+  return [...texts];
+}
+
+const seenVtts = new Set();
+window.addEventListener('DPVT_SUBTITLE', ({ detail: { url, text } }) => {
+  const key = url.split('?')[0];
+  if (seenVtts.has(key)) return;
+  seenVtts.add(key);
+  const texts = extractCueTexts(text);
+  if (!texts.length) return;
+  console.log(`[DPVT] Pre-translating ${texts.length} cues from`, key.split('/').pop());
+  translateAndCache(texts);
 });
 
-// ─── Video Finder ─────────────────────────────────────────────────────────────
-function findBestVideo() {
-  const candidates = Array.from(document.querySelectorAll('video'));
-  if (candidates.length === 0) return null;
-  return candidates.reduce((best, v) =>
-    (v.videoWidth * v.videoHeight) > (best.videoWidth * best.videoHeight) ? v : best,
-    candidates[0]
-  );
+// ── Navigation reset ──────────────────────────────────────────────────────────
+let lastVideoId = '';
+function getVideoId() {
+  const m = location.pathname.match(/\/(?:video\/watch|watch)\/([^/?#]+)/);
+  return m ? m[1] : '';
 }
-
-function startVideoWatch() {
-  setInterval(() => {
-    const found = findBestVideo();
-    if (found && found !== videoEl) {
-      videoEl = found;
-      console.log(`[D+VT] Video element found: ${videoEl.videoWidth}x${videoEl.videoHeight}`);
-    }
-  }, 1000);
-}
-
-// ─── Binary Search ────────────────────────────────────────────────────────────
-function findActiveCue(currentTime) {
-  let lo = 0, hi = currentCues.length - 1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const cue = currentCues[mid];
-    if (currentTime < cue.start) hi = mid - 1;
-    else if (currentTime > cue.end) lo = mid + 1;
-    else return cue;
+setInterval(() => {
+  const id = getVideoId();
+  if (id && id !== lastVideoId) {
+    lastVideoId = id;
+    seenVtts.clear();
+    cache.clear();
+    lastShownKey = '';
+    subtitleRoot = null;
+    showOverlay('');
+    if (playerObserver) { playerObserver.disconnect(); playerObserver = null; }
+    window.dispatchEvent(new CustomEvent('DPVT_RESET'));
+    console.log('[DPVT] Reset for new video:', id);
   }
-  return null;
-}
+}, 2000);
 
-// ─── Render Loop ──────────────────────────────────────────────────────────────
-function renderLoop() {
-  if (overlay && videoEl && document.contains(videoEl)) {
-    const cue = findActiveCue(videoEl.currentTime);
-    const text = cue ? cue.text : '';
-    if (text !== lastCueText) {
-      overlay.textContent = text;
-      lastCueText = text;
-    }
-  }
-  requestAnimationFrame(renderLoop);
-}
-
-// ─── Suppress native subtitles ────────────────────────────────────────────────
-function suppressNativeSubtitles() {
-  const style = document.createElement('style');
-  style.textContent = `
-    [data-testid="text-track"],
-    [data-testid="subtitles-container"],
-    .subtitle-text-container,
-    .text-track-container,
-    .player-timed-text {
-      display: none !important;
-      opacity: 0 !important;
-    }
-  `;
-  (document.head || document.documentElement).appendChild(style);
-
-  function disableTracks() {
-    document.querySelectorAll('video track').forEach(t => { t.mode = 'disabled'; });
-    const vid = findBestVideo();
-    if (vid && vid.textTracks) {
-      for (let i = 0; i < vid.textTracks.length; i++) {
-        vid.textTracks[i].mode = 'hidden';
-      }
-    }
-  }
-  disableTracks();
-  setInterval(disableTracks, 2000);
-}
-
-// ─── Init ─────────────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────────────────────
 createOverlay();
-suppressNativeSubtitles();
-startVideoWatch();
-watchForNavigation();
-renderLoop();

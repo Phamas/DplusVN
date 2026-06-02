@@ -1,74 +1,45 @@
-// interceptor.js — runs in MAIN world before Disney+ scripts
-// Intercepts subtitle network requests and forwards them to content.js via CustomEvent
+// interceptor.js — MAIN world, runs before Disney+ scripts
+// Intercepts VTT subtitle responses and forwards them to content.js
 
-console.log("[D+VT] Interceptor loaded.");
+// Force all shadow roots to open mode so content scripts can access them
+const _attachShadow = Element.prototype.attachShadow;
+Element.prototype.attachShadow = function(init) {
+  return _attachShadow.call(this, { ...init, mode: 'open' });
+};
 
-// ─── URL Filter ───────────────────────────────────────────────────────────────
-const SUBTITLE_PATTERNS = [
-  /\.vtt(\?|$)/i,
-  /\.ttml(\?|$)/i,
-  /subtitles?\//i,
-  /captions?\//i,
-  /\/sub\//i,
-  /bamgrid\.com.*\.vtt/i,
-  /dssott\.com.*\.(vtt|ttml)/i,
-];
+const SUBTITLE_RE = /\.(vtt|ttml)(\?|$)/i;
+const seen = new Set();
 
-// ─── Dedup cache — reset on each new video ───────────────────────────────────
-let dispatchedUrls = new Set();
-
-// Listen for reset signal from content.js (fires on each new video navigation)
-window.addEventListener('D_PLUS_RESET', () => {
-  dispatchedUrls = new Set();
-  console.log('[D+VT] Interceptor cache cleared for new video.');
-});
-
-function isSubtitleUrl(url) {
+function isSubtitle(url) {
   if (typeof url !== 'string') return false;
-  if (url.includes('.m4s')) return false;
-  if (url.includes('.m3u8')) return false;
-  if (url.includes('.mpd')) return false;
-  return SUBTITLE_PATTERNS.some(pattern => pattern.test(url));
+  if (/\.(m4s|m3u8|mpd|mp4|mp3|jpg|png|svg|woff|css|js)(\?|$)/i.test(url)) return false;
+  return SUBTITLE_RE.test(url) || /subtitles?\/|captions?\//i.test(url);
 }
 
 function dispatch(url, text) {
+  if (!text || !text.includes('WEBVTT')) return;
   const key = url.split('?')[0];
-  if (dispatchedUrls.has(key)) return;
-  dispatchedUrls.add(key);
-
-  // Keep the cache bounded
-  if (dispatchedUrls.size > 200) {
-    dispatchedUrls.delete(dispatchedUrls.values().next().value);
-  }
-
-  window.dispatchEvent(new CustomEvent('D_PLUS_SUBTITLE', {
-    detail: { url, text }
-  }));
+  if (seen.has(key)) return;
+  seen.add(key);
+  window.dispatchEvent(new CustomEvent('DPVT_SUBTITLE', { detail: { url, text } }));
 }
 
-// ─── Intercept fetch ──────────────────────────────────────────────────────────
+window.addEventListener('DPVT_RESET', () => seen.clear());
+
+// Intercept fetch
 const _fetch = window.fetch;
 window.fetch = async (...args) => {
-  const url = args[0] instanceof Request ? args[0].url : String(args[0]);
-  const response = await _fetch(...args);
-
-  if (isSubtitleUrl(url)) {
-    response.clone().text()
-      .then(text => dispatch(url, text))
-      .catch(() => {});
-  }
-
-  return response;
+  const url = typeof args[0] === 'string' ? args[0] : args[0]?.url ?? '';
+  const res = await _fetch(...args);
+  if (isSubtitle(url)) res.clone().text().then(t => dispatch(url, t)).catch(() => {});
+  return res;
 };
 
-// ─── Intercept XHR ───────────────────────────────────────────────────────────
-const _xhrOpen = XMLHttpRequest.prototype.open;
-XMLHttpRequest.prototype.open = function (method, url) {
-  const urlStr = String(url);
-  if (isSubtitleUrl(urlStr)) {
-    this.addEventListener('load', () => {
-      dispatch(urlStr, this.responseText);
-    });
+// Intercept XHR
+const _open = XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open = function(method, url) {
+  if (isSubtitle(String(url))) {
+    this.addEventListener('load', () => dispatch(String(url), this.responseText));
   }
-  return _xhrOpen.apply(this, arguments);
+  return _open.apply(this, arguments);
 };
