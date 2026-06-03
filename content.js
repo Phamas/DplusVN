@@ -199,6 +199,23 @@ const attachInterval = setInterval(() => {
   if (attachPlayerObserver()) clearInterval(attachInterval);
 }, 1000);
 
+// Move overlay into/out of the fullscreen element so position:fixed stays visible
+function handleFullscreenChange() {
+  const fs = document.fullscreenElement || document.webkitFullscreenElement;
+  const parent = (fs && !fs.contains(overlay)) ? fs : document.body;
+  if (overlay && overlay.parentElement !== parent) parent.appendChild(overlay);
+
+  // Also reset shadow root — player may re-render on fullscreen
+  subtitleRoot = null;
+  if (playerObserver) { playerObserver.disconnect(); playerObserver = null; }
+  lastShownKey = '';
+  const retry = setInterval(() => {
+    if (attachPlayerObserver()) clearInterval(retry);
+  }, 300);
+}
+document.addEventListener('fullscreenchange', handleFullscreenChange);
+document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+
 // ── VTT pre-translation ───────────────────────────────────────────────────────
 function extractCueTexts(vtt) {
   const texts = new Set();
